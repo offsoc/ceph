@@ -269,14 +269,9 @@ public:
     Transaction &t,
     laddr_t offset, extent_len_t length) final;
 
-  get_mappings_ret get_mappings(
-    Transaction &t,
-    laddr_list_t &&list) final;
-
   get_mapping_ret get_mapping(
     Transaction &t,
     laddr_t offset) final;
-
 
   struct alloc_mapping_info_t {
     laddr_t key = L_ADDR_NULL; // once assigned, the allocation to
@@ -311,8 +306,8 @@ public:
       extent_len_t len,
       paddr_t paddr,
       uint32_t checksum,
-      LogicalChildNode *extent) {
-      return {laddr, len, paddr, checksum, extent};
+      LogicalChildNode& extent) {
+      return {laddr, len, paddr, checksum, &extent};
     }
   };
 
@@ -389,7 +384,7 @@ public:
 	ext.get_length(),
 	ext.get_paddr(),
 	ext.get_last_committed_crc(),
-	&ext)};
+	ext)};
     return seastar::do_with(
       std::move(alloc_infos),
       [this, &t, hint, refcount](auto &alloc_infos) {
@@ -421,7 +416,7 @@ public:
 	  extent->get_length(),
 	  extent->get_paddr(),
 	  extent->get_last_committed_crc(),
-	  extent.get()));
+	  *extent));
     }
     return seastar::do_with(
       std::move(alloc_infos),
@@ -430,19 +425,10 @@ public:
     });
   }
 
-  ref_ret decref_extent(
+  ref_ret remove_mapping(
     Transaction &t,
     laddr_t addr) final {
     return update_refcount(t, addr, -1, true
-    ).si_then([](auto res) {
-      return std::move(res.ref_update_res);
-    });
-  }
-
-  ref_ret incref_extent(
-    Transaction &t,
-    laddr_t addr) final {
-    return update_refcount(t, addr, 1, false
     ).si_then([](auto res) {
       return std::move(res.ref_update_res);
     });
@@ -594,10 +580,11 @@ public:
     laddr_t laddr,
     extent_len_t prev_len,
     paddr_t prev_addr,
-    extent_len_t len,
-    paddr_t paddr,
-    uint32_t checksum,
-    LogicalChildNode*) final;
+    LogicalChildNode&) final;
+
+  update_mappings_ret update_mappings(
+    Transaction& t,
+    const std::list<LogicalChildNodeRef>& extents);
 
   get_physical_extent_if_live_ret get_physical_extent_if_live(
     Transaction &t,
@@ -607,7 +594,6 @@ public:
     extent_len_t len) final;
 private:
   Cache &cache;
-
 
   struct {
     uint64_t num_alloc_extents = 0;
@@ -716,13 +702,24 @@ private:
 
   using _get_mapping_ret = get_mapping_iertr::future<BtreeLBAMappingRef>;
   _get_mapping_ret _get_mapping(
-    Transaction &t,
+    op_context_t<laddr_t> c,
+    LBABtree& btree,
     laddr_t offset);
 
-  using _get_original_mappings_ret = get_mappings_ret;
-  _get_original_mappings_ret _get_original_mappings(
+  using _get_mappings_ret = get_mappings_iertr::future<std::list<BtreeLBAMappingRef>>;
+  _get_mappings_ret _get_mappings(
     op_context_t<laddr_t> c,
-    std::list<BtreeLBAMappingRef> &pin_list);
+    LBABtree& btree,
+    laddr_t offset,
+    extent_len_t length);
+
+  using get_indirect_pin_ret = get_mappings_iertr::future<BtreeLBAMappingRef>;
+  get_indirect_pin_ret get_indirect_pin(
+    op_context_t<laddr_t> c,
+    LBABtree& btree,
+    laddr_t key,
+    laddr_t intermediate_key,
+    extent_len_t length);
 
   using _decref_intermediate_ret = ref_iertr::future<
     std::optional<ref_update_result_t>>;

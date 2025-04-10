@@ -51,17 +51,6 @@ public:
     laddr_t offset, extent_len_t length) = 0;
 
   /**
-   * Fetches mappings for a list of laddr_t in range [offset, offset + len)
-   *
-   * Future will not resolve until all pins have resolved (set_paddr called)
-   * For indirect lba mappings, get_mappings will always retrieve the original
-   * lba value.
-   */
-  virtual get_mappings_ret get_mappings(
-    Transaction &t,
-    laddr_list_t &&extent_lisk) = 0;
-
-  /**
    * Fetches the mapping for laddr_t
    *
    * Future will not resolve until the pin has resolved (set_paddr called)
@@ -111,6 +100,7 @@ public:
     extent_len_t len) = 0;
 
   struct ref_update_result_t {
+    laddr_t direct_key;
     extent_ref_count_t refcount = 0;
     pladdr_t addr;
     extent_len_t length = 0;
@@ -120,20 +110,11 @@ public:
   using ref_ret = ref_iertr::future<ref_update_result_t>;
 
   /**
-   * Decrements ref count on extent
+   * Removes a mapping and deal with indirection
    *
    * @return returns resulting refcount
    */
-  virtual ref_ret decref_extent(
-    Transaction &t,
-    laddr_t addr) = 0;
-
-  /**
-   * Increments ref count on extent
-   *
-   * @return returns resulting refcount
-   */
-  virtual ref_ret incref_extent(
+  virtual ref_ret remove_mapping(
     Transaction &t,
     laddr_t addr) = 0;
 
@@ -212,7 +193,7 @@ public:
   /**
    * update_mapping
    *
-   * update lba mapping for a delayed allocated extent
+   * update lba mapping for rewrite
    */
   using update_mapping_iertr = base_iertr;
   using update_mapping_ret = base_iertr::future<extent_ref_count_t>;
@@ -221,10 +202,7 @@ public:
     laddr_t laddr,
     extent_len_t prev_len,
     paddr_t prev_addr,
-    extent_len_t len,
-    paddr_t paddr,
-    uint32_t checksum,
-    LogicalChildNode *nextent) = 0;
+    LogicalChildNode& nextent) = 0;
 
   /**
    * update_mappings
@@ -233,9 +211,9 @@ public:
    */
   using update_mappings_iertr = update_mapping_iertr;
   using update_mappings_ret = update_mappings_iertr::future<>;
-  update_mappings_ret update_mappings(
+  virtual update_mappings_ret update_mappings(
     Transaction& t,
-    const std::list<LogicalChildNodeRef>& extents);
+    const std::list<LogicalChildNodeRef>& extents) = 0;
 
   /**
    * get_physical_extent_if_live

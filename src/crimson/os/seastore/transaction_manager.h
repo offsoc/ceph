@@ -210,9 +210,9 @@ public:
     ).si_then([this, FNAME, &t, offset, length] (auto pin)
       -> read_extent_ret<T> {
       if (length != pin->get_length() || !pin->get_val().is_real()) {
-        SUBERRORT(seastore_tm, "{}~0x{:x} {} got wrong {}",
+        SUBERRORT(seastore_tm, "{}~0x{:x} {} got wrong pin {}",
                   t, offset, length, T::TYPE, *pin);
-        ceph_assert(0 == "Should be impossible");
+        ceph_abort("Impossible");
       }
       return this->read_pin<T>(t, std::move(pin));
     });
@@ -235,9 +235,9 @@ public:
     ).si_then([this, FNAME, &t, offset] (auto pin)
       -> read_extent_ret<T> {
       if (!pin->get_val().is_real()) {
-        SUBERRORT(seastore_tm, "{} {} got wrong {}",
+        SUBERRORT(seastore_tm, "{} {} got wrong pin {}",
                   t, offset, T::TYPE, *pin);
-        ceph_assert(0 == "Should be impossible");
+        ceph_abort("Impossible");
       }
       return this->read_pin<T>(t, std::move(pin));
     });
@@ -322,34 +322,11 @@ public:
 
   /// Obtain mutable copy of extent
   LogicalChildNodeRef get_mutable_extent(Transaction &t, LogicalChildNodeRef ref) {
-    LOG_PREFIX(TransactionManager::get_mutable_extent);
-    auto ret = cache->duplicate_for_write(
-      t,
-      ref)->cast<LogicalChildNode>();
-    if (!ret->has_laddr()) {
-      SUBDEBUGT(seastore_tm, "duplicate from {}", t, *ref);
-      ret->set_laddr(ref->get_laddr());
-    } else {
-      assert(ref->is_mutable());
-      assert(&*ref == &*ret);
-    }
-    return ret;
+    return cache->duplicate_for_write(t, ref)->cast<LogicalChildNode>();
   }
 
   using ref_iertr = LBAManager::ref_iertr;
   using ref_ret = ref_iertr::future<extent_ref_count_t>;
-
-#ifdef UNIT_TESTS_BUILT
-  /// Add refcount for ref
-  ref_ret inc_ref(
-    Transaction &t,
-    LogicalChildNodeRef &ref);
-
-  /// Add refcount for offset
-  ref_ret inc_ref(
-    Transaction &t,
-    laddr_t offset);
-#endif
 
   /** 
    * remove
@@ -1055,6 +1032,7 @@ private:
       partial_len,
       [&pref]
       (T &extent) mutable {
+	assert(extent.is_logical());
 	assert(!extent.has_laddr());
 	assert(!extent.has_been_invalidated());
 	assert(!pref.has_been_invalidated());
@@ -1130,6 +1108,7 @@ private:
       direct_key,
       direct_length,
       [&pref](CachedExtent &extent) mutable {
+	assert(extent.is_logical());
 	auto &lextent = static_cast<LogicalChildNode&>(extent);
 	assert(!lextent.has_laddr());
 	assert(!lextent.has_been_invalidated());

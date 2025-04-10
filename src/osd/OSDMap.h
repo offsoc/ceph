@@ -29,16 +29,20 @@
 #include <set>
 #include <map>
 #include <memory>
+#include <random>
 
-#include <boost/smart_ptr/local_shared_ptr.hpp>
 #include "include/btree_map.h"
 #include "include/common_fwd.h"
+#include "include/fs_types.h" // for struct file_layout_t
 #include "include/types.h"
 #include "common/ceph_releases.h"
 #include "osd_types.h"
 
-//#include "include/ceph_features.h"
 #include "crush/CrushWrapper.h"
+
+#ifdef WITH_CRIMSON
+#include <boost/smart_ptr/local_shared_ptr.hpp>
+#endif
 
 // forward declaration
 class CrushWrapper;
@@ -1838,7 +1842,7 @@ public:
 WRITE_CLASS_ENCODER_FEATURES(OSDMap)
 WRITE_CLASS_ENCODER_FEATURES(OSDMap::Incremental)
 
-#ifdef WITH_SEASTAR
+#ifdef WITH_CRIMSON
 #include "crimson/common/local_shared_foreign_ptr.h"
 using LocalOSDMapRef = boost::local_shared_ptr<const OSDMap>;
 using OSDMapRef = crimson::local_shared_foreign_ptr<LocalOSDMapRef>;
