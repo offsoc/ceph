@@ -2877,30 +2877,52 @@ test_force_promote_before_initial_sync()
   group_images_add "${primary_cluster}" "${pool}/${group0}" "${pool}/${image_prefix}" $(("${image_count}"-1))
 
   big_image=test-image-big
-  image_create "${primary_cluster}" "${pool}/${big_image}" 4G
-  # make some changes to the big image so that the sync will take a long time
-  write_image "${primary_cluster}" "${pool}" "${big_image}" 1024 4194304
-  group_image_add "${primary_cluster}" "${pool}/${group0}" "${pool}/${big_image}"
+  local sync_incomplete=false
 
-  mirror_group_enable "${primary_cluster}" "${pool}/${group0}"
-  wait_for_group_present "${secondary_cluster}" "${pool}" "${group0}" "${image_count}"
+  multiplier=1
+  while [ "${sync_incomplete}" = false ]; do
+    image_size=$((multiplier*1024))
+    io_count=$((multiplier*256))
 
-  wait_for_group_replay_started "${secondary_cluster}" "${pool}"/"${group0}" "${image_count}"
-  wait_for_group_status_in_pool_dir "${secondary_cluster}" "${pool}"/"${group0}" 'up+replaying' "${image_count}"
+    image_create "${primary_cluster}" "${pool}/${big_image}" "${image_size}M"
+    # make some changes to the big image so that the sync will take a long time count,size 
+    # io-total = count*size 1K, 4M (1024, 4M writes)
+    write_image "${primary_cluster}" "${pool}" "${big_image}" "${io_count}" 4194304
+    group_image_add "${primary_cluster}" "${pool}/${group0}" "${pool}/${big_image}"
 
-  if [ -z "${RBD_MIRROR_USE_RBD_MIRROR}" ]; then
-    wait_for_group_status_in_pool_dir "${primary_cluster}" "${pool}"/"${group0}" 'down+unknown' 0
-  fi
+    mirror_group_enable "${primary_cluster}" "${pool}/${group0}"
+    wait_for_group_present "${secondary_cluster}" "${pool}" "${group0}" "${image_count}"
 
-  local group_snap_id
-  get_newest_group_snapshot_id "${primary_cluster}" "${pool}/${group0}" group_snap_id
-  wait_for_test_group_snap_present "${secondary_cluster}" "${pool}/${group0}" "${group_snap_id}" 1
+    wait_for_group_replay_started "${secondary_cluster}" "${pool}"/"${group0}" "${image_count}"
+    wait_for_group_status_in_pool_dir "${secondary_cluster}" "${pool}"/"${group0}" 'up+replaying' "${image_count}"
 
-  # stop the daemon to prevent further syncing of snapshots
-  stop_mirrors "${secondary_cluster}" '-9'
+    if [ -z "${RBD_MIRROR_USE_RBD_MIRROR}" ]; then
+      wait_for_group_status_in_pool_dir "${primary_cluster}" "${pool}"/"${group0}" 'down+unknown' 0
+    fi
 
-  # check that latest snap is incomplete
-  test_group_snap_sync_incomplete "${secondary_cluster}" "${pool}/${group0}" "${group_snap_id}" 
+    local group_snap_id
+    get_newest_group_snapshot_id "${primary_cluster}" "${pool}/${group0}" group_snap_id
+    wait_for_test_group_snap_present "${secondary_cluster}" "${pool}/${group0}" "${group_snap_id}" 1
+
+    # stop the daemon to prevent further syncing of snapshots
+    stop_mirrors "${secondary_cluster}" '-9'
+
+    # see if the latest snap is incomplete
+    test_group_snap_sync_incomplete "${secondary_cluster}" "${pool}/${group0}" "${group_snap_id}" && sync_incomplete=true
+
+    # If the sync for the last snapshot is already complete then we need to repeat with a larger image and write more data.
+    # Disable mirroring, delete the image and go round the loop again
+    if [ "${sync_incomplete}" = false ]; then
+      start_mirrors "${secondary_cluster}"
+      mirror_group_disable "${primary_cluster}" "${pool}/${group0}"
+      group_image_remove "${primary_cluster}" "${pool}/${group0}" "${pool}/${big_image}"
+      image_remove "${primary_cluster}" "${pool}/${big_image}"
+      wait_for_group_not_present "${secondary_cluster}" "${pool}" "${group0}"
+
+      multiplier=$((multiplier*2))
+    fi
+
+  done
 
   # force promote the group on the secondary - this should fail with a sensible error message
   expect_failure "no initial group snapshot available" rbd --cluster=${secondary_cluster} mirror group promote ${pool}/${group0} --force
